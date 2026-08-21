@@ -1,0 +1,14 @@
+/* Append to the index.css that `shadcn init` generated. */
+
+html {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv11', 'ss01'; /* Inter: single-storey a, cleaner digits */
+}
+
+/* Browser surfaces themed from the palette instead of left at defaults. */
+::selection {
+  background: color-mix(in oklab, var(--color-primary, hsl(var(--primary))) 22%, transparent);
+}
+input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
