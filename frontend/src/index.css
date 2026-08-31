@@ -1,0 +1,227 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@import "leaflet/dist/leaflet.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design world: a daylight eco-operations console. Clean white/light-gray ground, Sage Green for
+ * primary actions and "all clear", Electric Teal for smart-tech data (links, telemetry, selection),
+ * Warm Amber for warnings. Red appears only for confirmed violations. Colors are RGB triplets so
+ * Tailwind alpha utilities work; dark mode redefines the same names under `.dark`.
+ *
+ * Contrast rule: Sage (#4CAF50) and Amber (#FFBF00) are fills that carry dark ink (`accent-ink`),
+ * never white. Text-sized greens/ambers use the darker *-text tokens.
+ */
+:root {
+  --canvas: 244 246 244;
+  --surface: 255 255 255;
+  --sunken: 236 240 237;
+  --ink: 20 33 24;
+  --muted: 82 98 88;
+  --line: 222 228 223;
+
+  --accent: 76 175 80;          /* #4CAF50 */
+  --accent-strong: 67 160 71;   /* hover fill */
+  --accent-ink: 12 38 18;       /* text on accent fill */
+  --accent-soft: 229 244 230;
+  --accent-text: 30 110 36;     /* green used as text */
+
+  --tech: 0 128 128;            /* #008080 */
+  --tech-soft: 223 242 241;
+  --tech-text: 0 100 100;
+
+  --warn: 255 191 0;            /* #FFBF00 */
+  --warn-soft: 255 245 214;
+  --warn-text: 128 80 0;
+
+  --danger: 197 48 48;
+  --danger-soft: 253 232 230;
+  --on-danger: 255 255 255;
+
+  --ok: 46 125 50;
+  --ok-soft: 229 244 230;
+  color-scheme: light;
+}
+
+.dark {
+  --canvas: 13 20 16;
+  --surface: 21 30 24;
+  --sunken: 28 39 32;
+  --ink: 232 240 234;
+  --muted: 160 177 166;
+  --line: 43 57 48;
+
+  --accent: 76 175 80;
+  --accent-strong: 94 190 98;
+  --accent-ink: 8 30 12;
+  --accent-soft: 26 52 31;
+  --accent-text: 129 199 132;
+
+  --tech: 0 150 150;
+  --tech-soft: 16 50 50;
+  --tech-text: 82 208 206;
+
+  --warn: 255 191 0;
+  --warn-soft: 58 47 10;
+  --warn-text: 255 205 60;
+
+  --danger: 240 110 106;
+  --danger-soft: 66 28 28;
+  --on-danger: 34 8 8;
+
+  --ok: 102 187 106;
+  --ok-soft: 26 52 31;
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    font-size: 15px;
+    accent-color: rgb(var(--accent));
+    scrollbar-color: rgb(var(--line)) transparent;
+    scrollbar-width: thin;
+  }
+  body {
+    @apply bg-canvas font-sans text-ink antialiased;
+    font-variant-numeric: tabular-nums;
+    text-wrap: pretty;
+  }
+  h1, h2, h3 {
+    text-wrap: balance;
+    letter-spacing: -0.015em;
+  }
+  ::selection {
+    background: rgb(var(--tech) / 0.25);
+    color: rgb(var(--ink));
+  }
+  input, textarea, select {
+    caret-color: rgb(var(--tech));
+  }
+  a {
+    text-underline-offset: 3px;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--tech));
+    outline-offset: 2px;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--line));
+    border-radius: 8px;
+    border: 2px solid rgb(var(--canvas));
+  }
+}
+
+@layer components {
+  /* ---- buttons: one shape, four tones ---- */
+  .btn {
+    @apply inline-flex min-h-[40px] items-center justify-center gap-2 rounded-control px-4 text-sm font-semibold
+      transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary { @apply bg-accent text-accent-ink hover:bg-accent-strong active:bg-accent-strong; }
+  .btn-secondary { @apply border border-line bg-surface text-ink hover:bg-sunken active:bg-sunken; }
+  .btn-danger { @apply bg-danger text-on-danger hover:brightness-90 active:brightness-90; }
+  .btn-ghost { @apply px-2 text-muted hover:bg-sunken hover:text-ink; }
+  .btn-sm { @apply min-h-[34px] px-3 text-[13px]; }
+
+  /* ---- form controls ---- */
+  .label { @apply mb-1 block text-[13px] font-semibold text-ink; }
+  .hint { @apply mt-1 text-[13px] text-muted; }
+  .input {
+    @apply min-h-[40px] w-full rounded-control border border-line bg-surface px-3 text-sm text-ink
+      placeholder:text-muted/70 transition-colors duration-150 hover:border-muted/60
+      disabled:cursor-not-allowed disabled:bg-sunken disabled:text-muted;
+  }
+  .input[aria-invalid="true"] { @apply border-danger; }
+  select.input { @apply pr-8; }
+
+  /* ---- surfaces: elevation is a border, declared once ---- */
+  .panel { @apply rounded-panel border border-line bg-surface; }
+  .panel-head { @apply flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3; }
+
+  /* ---- data tables ---- */
+  .data-table { @apply w-full border-collapse text-left text-sm; }
+  .data-table th {
+    @apply whitespace-nowrap bg-sunken/60 px-4 py-2 text-[13px] font-medium text-muted;
+  }
+  .data-table td { @apply border-t border-line px-4 py-3 align-middle; }
+  .data-table tbody tr { @apply transition-colors duration-150; }
+  .data-table tbody tr.is-clickable:hover { @apply bg-sunken/50; }
+
+  .skeleton {
+    @apply rounded bg-sunken;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .mono-id { @apply font-mono text-[12px] text-muted; }
+
+  /* ---- modal (native <dialog>: focus trap and Esc come from the browser) ---- */
+  .modal {
+    @apply m-auto w-[calc(100%-2rem)] max-w-md rounded-panel border border-line bg-surface p-0 text-ink;
+    
+  }
+  .modal::backdrop { background: rgb(8 18 12 / 0.55); }
+}
+
+/* ---- live indicator ---- */
+.live-dot {
+  position: relative;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+  border-radius: 9999px;
+  background: rgb(var(--accent));
+}
+
+/* ---- Leaflet, themed from the palette ---- */
+.leaflet-container {
+  font-family: inherit;
+  background: rgb(var(--sunken));
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: rgb(var(--surface));
+  color: rgb(var(--ink));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.35);
+}
+.leaflet-popup-content { margin: 12px 14px; font-size: 13px; line-height: 1.45; }
+.leaflet-container a.leaflet-popup-close-button { color: rgb(var(--muted)); }
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background: rgb(var(--surface));
+  color: rgb(var(--ink));
+  border-bottom-color: rgb(var(--line));
+}
+.leaflet-bar a:hover { background: rgb(var(--sunken)); }
+.leaflet-control-attribution {
+  background: rgb(var(--surface) / 0.85) !important;
+  color: rgb(var(--muted)) !important;
+}
+.leaflet-control-attribution a { color: rgb(var(--tech-text)) !important; }
+
+.map-pin {
+  position: relative;
+  height: 22px;
+  width: 22px;
+}
+.map-pin > span {
+  position: absolute;
+  inset: 3px;
+  border-radius: 9999px;
+  border: 3px solid rgb(var(--surface));
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+}
+.map-pin--ok > span { background: rgb(var(--accent)); }
+.map-pin--tracking > span { background: rgb(var(--warn)); }
+.map-pin--alert > span { background: rgb(var(--danger)); }
+.map-pin--offline > span { background: rgb(var(--muted)); }
+
+@keyframes pulse {
+  50% { opacity: 0.5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
