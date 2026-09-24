@@ -1,0 +1,24 @@
+
+services:
+
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mqtt-broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"  
+      - "9001:9001"  
+    volumes:
+      - ./mq/config/passwd:/mosquitto/config/passwd
+      - ./mq/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mq/data:/mosquitto/data
+      - ./mq/log:/mosquitto/log
+
+  mqtt-dashboard:
+      image: emqx/mqttx-web
+      container_name: mqtt-web-ui
+      restart: unless-stopped
+      ports:
+        - "8088:80"     
+      depends_on:
+        - mosquitto
