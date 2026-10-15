@@ -1,0 +1,101 @@
+# Slop - Sistem Pencegahan Parkir Liar dan PKL di Bahu Jalan
+# Run: docker compose up --build   ->  UI http://localhost:8080 | API http://localhost:8000 | MQTT localhost:1883
+x-backend-env: &backend-env
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+  DB_HOST: mysql
+  DB_NAME: ${MYSQL_DATABASE:-slop}
+  DB_USER: ${MYSQL_USER:-slop}
+  DB_PASSWORD: ${MYSQL_PASSWORD:-slop}
+  MQTT_BROKER_HOST: mosquitto
+  MQTT_USERNAME: ${MQTT_USERNAME:-sicuser}
+  MQTT_PASSWORD: ${MQTT_PASSWORD:-s1cu53rp455w0rd}
+  CORS_ALLOWED_ORIGINS: http://localhost:8080,http://localhost:5173
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-slop}
+      MYSQL_USER: ${MYSQL_USER:-slop}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-slop}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    environment:
+      MQTT_USERNAME: ${MQTT_USERNAME:-sicuser}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-s1cu53rp455w0rd}
+    command: >
+      sh -c "rm -f /tmp/mosquitto_passwd &&
+             mosquitto_passwd -b -c /tmp/mosquitto_passwd $$MQTT_USERNAME $$MQTT_PASSWORD &&
+             chmod 644 /tmp/mosquitto_passwd &&
+             exec mosquitto -c /mosquitto/config/mosquitto.conf"
+    volumes:
+      - ./mq/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mq/data:/mosquitto/data
+      - ./mq/log:/mosquitto/log
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+  mqtt-dashboard:
+      image: emqx/mqttx-web
+      container_name: mqtt-web-ui
+      restart: unless-stopped
+      ports:
+        - "8088:80"     
+      depends_on:
+        - mosquitto
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "1"
+      OPERATOR_USERNAME: ${OPERATOR_USERNAME:-operator}
+      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:-operator123}
+      SATPOL_USERNAME: ${SATPOL_USERNAME:-satpol}
+      SATPOL_PASSWORD: ${SATPOL_PASSWORD:-satpol123}
+      DEMO_DEVICE_ID: ${DEMO_DEVICE_ID:-a4ca5bbb-f98c-4add-af1e-a498c9868dcc}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  # Same image, different process: the single MQTT subscriber that writes telemetry/alerts to MySQL.
+  mqtt-worker:
+    build: ./backend
+    restart: unless-stopped
+    command: ["python", "manage.py", "run_mqtt"]
+    environment:
+      <<: *backend-env
+    depends_on:
+      backend:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  mysql_data:
