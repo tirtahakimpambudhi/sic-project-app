@@ -50,17 +50,21 @@ class Device(models.Model):
 
 
 class DeviceUnit(models.Model):
-    """A sensor + servo pair. unit_id 0 is the permanent default unit built into the firmware."""
+    """A sensor + servo + buzzer set. unit_id 0 is the permanent default unit built into the firmware."""
 
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="units")
     unit_id = models.PositiveSmallIntegerField()
     trig_pin = models.PositiveSmallIntegerField(null=True, blank=True)
     echo_pin = models.PositiveSmallIntegerField(null=True, blank=True)
     servo_pin = models.PositiveSmallIntegerField(null=True, blank=True)
+    buzzer_pin = models.PositiveSmallIntegerField(null=True, blank=True)
     is_default = models.BooleanField(default=False)
     has_setup = models.BooleanField(default=False)
 
     detection_state = models.CharField(max_length=20, blank=True)  # scanning | tracking | confirmed
+    # Latched alarm reported by the firmware: stays true after the object leaves, until a release.
+    is_object_detected = models.BooleanField(default=False)
+    buzzer_active = models.BooleanField(default=False)
     last_distance_cm = models.FloatField(null=True, blank=True)
     servo_position = models.IntegerField(null=True, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
@@ -103,6 +107,9 @@ class AlertLog(models.Model):
     occurrences = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(default=timezone.now)
     last_occurred_at = models.DateTimeField(default=timezone.now)
+    # Set when the device reports the alarm was released (iot/<id>/release): buzzer off, alerts stopped.
+    # A released alert never absorbs repeats, so a new incident on the same unit opens a new row.
+    released_at = models.DateTimeField(null=True, blank=True)
 
     is_resolved = models.BooleanField(default=False)
     resolved_by = models.ForeignKey(

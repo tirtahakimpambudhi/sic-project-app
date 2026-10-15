@@ -12,6 +12,7 @@ from .serializers import (
     AddUnitSerializer,
     AlertLogSerializer,
     DeviceSerializer,
+    ReleaseSerializer,
     TelemetryLogSerializer,
     UnsetUnitsSerializer,
 )
@@ -34,9 +35,11 @@ class DeviceViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     READ_ACTIONS = {"list", "retrieve", "telemetry"}
+    # Silencing a latched alarm is part of handling an alert, so field officers may do it too.
+    MONITORING_ACTIONS = READ_ACTIONS | {"release"}
 
     def get_permissions(self):
-        permission = IsMonitoringUser if self.action in self.READ_ACTIONS else IsOperator
+        permission = IsMonitoringUser if self.action in self.MONITORING_ACTIONS else IsOperator
         return [permission()]
 
     def get_queryset(self):
@@ -85,6 +88,21 @@ class DeviceViewSet(viewsets.ModelViewSet):
             return _command_error_response(exc)
         return Response(
             {"detail": "Perintah dikirim. Menunggu konfirmasi perangkat.", "command": payload},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="release")
+    def release(self, request, device_id=None):
+        """Stop alerts and silence the buzzer. Body: {} (all units in alarm) or {"unit_ids": [1, 2]}."""
+        device = self.get_object()
+        serializer = ReleaseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = device_service.request_release(device, serializer.validated_data.get("unit_ids"))
+        except DeviceCommandError as exc:
+            return _command_error_response(exc)
+        return Response(
+            {"detail": "Perintah release dikirim. Menunggu konfirmasi perangkat.", "command": payload},
             status=status.HTTP_202_ACCEPTED,
         )
 

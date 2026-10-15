@@ -11,7 +11,7 @@ from devices.services import mqtt_service
 
 MAX_UNITS = 4  # unit 0 (default) + 3 dynamic slots
 DEFAULT_UNIT_ID = 0
-DEFAULT_PINS = {"trig": 22, "echo": 21, "servo": 23}  # firmware unit 0 (main.cpp)
+DEFAULT_PINS = {"trig": 22, "echo": 21, "servo": 23, "buzzer": 19}  # firmware unit 0 (main.cpp)
 
 # ESP32 (classic) pin rules mirrored from the firmware so errors surface before a round trip.
 UART0_PINS = {1, 3}
@@ -42,6 +42,7 @@ def register_device(**fields) -> Device:
         trig_pin=DEFAULT_PINS["trig"],
         echo_pin=DEFAULT_PINS["echo"],
         servo_pin=DEFAULT_PINS["servo"],
+        buzzer_pin=DEFAULT_PINS["buzzer"],
     )
     return device
 
@@ -71,21 +72,33 @@ def _validate_pin(pin: int, role: str, needs_output: bool) -> None:
         raise DeviceCommandError("invalid_pin", f"{role}: GPIO{pin} hanya input, tidak bisa dipakai sebagai output.")
 
 
-def validate_new_unit(device: Device, trig_pin: int, echo_pin: int, servo_pin: int) -> None:
+def validate_new_unit(device: Device, trig_pin: int, echo_pin: int, servo_pin: int, buzzer_pin: int) -> None:
     if device.units.count() >= MAX_UNITS:
         raise DeviceCommandError(
             "max_units_reached", f"Maksimal {MAX_UNITS} unit (termasuk default).", status_code=409
         )
 
-    requested = (("TRIG", trig_pin, True), ("ECHO", echo_pin, False), ("SERVO", servo_pin, True))
+    requested = (
+        ("TRIG", trig_pin, True),
+        ("ECHO", echo_pin, False),
+        ("SERVO", servo_pin, True),
+        ("BUZZER", buzzer_pin, True),
+    )
     for role, pin, needs_output in requested:
         _validate_pin(pin, role, needs_output)
 
-    if len({trig_pin, echo_pin, servo_pin}) < 3:
-        raise DeviceCommandError("pin_conflict_request", "TRIG, ECHO, dan SERVO harus memakai GPIO berbeda.")
+    if len({trig_pin, echo_pin, servo_pin, buzzer_pin}) < len(requested):
+        raise DeviceCommandError(
+            "pin_conflict_request", "TRIG, ECHO, SERVO, dan BUZZER harus memakai GPIO berbeda."
+        )
 
     for unit in device.units.all():
-        used = {unit.trig_pin: "TRIG", unit.echo_pin: "ECHO", unit.servo_pin: "SERVO"}
+        used = {
+            unit.trig_pin: "TRIG",
+            unit.echo_pin: "ECHO",
+            unit.servo_pin: "SERVO",
+            unit.buzzer_pin: "BUZZER",
+        }
         for role, pin, _ in requested:
             if pin in used:
                 raise DeviceCommandError(
@@ -95,12 +108,13 @@ def validate_new_unit(device: Device, trig_pin: int, echo_pin: int, servo_pin: i
                 )
 
 
-def request_add_unit(device: Device, trig_pin: int, echo_pin: int, servo_pin: int) -> dict:
+def request_add_unit(device: Device, trig_pin: int, echo_pin: int, servo_pin: int, buzzer_pin: int) -> dict:
     """Publish config/set. Returns the payload that was sent."""
-    validate_new_unit(device, trig_pin, echo_pin, servo_pin)
+    validate_new_unit(device, trig_pin, echo_pin, servo_pin, buzzer_pin)
     payload = {
         "sensor": {"type": "ultrasonic", "trig_pin": trig_pin, "echo_pin": echo_pin},
         "servo": {"pin": servo_pin},
+        "buzzer": {"pin": buzzer_pin},
         **_general_payload(device),
     }
     _publish(device, "config/set", payload)
@@ -124,6 +138,30 @@ def request_unset_units(device: Device, unit_ids: Iterable[int]) -> dict:
 
     payload = {"unitId": ids[0] if len(ids) == 1 else ids}
     _publish(device, "config/unset", payload)
+    return payload
+
+
+def request_release(device: Device, unit_ids: Iterable[int] | None = None) -> dict:
+    """Publish release: stop the alert repeats and silence the buzzer of latched units.
+
+    No ``unit_ids`` -> empty payload, the firmware releases every unit in alarm. Otherwise only the
+    listed units (they must exist). The firmware answers on config/status (release_ok /
+    no_active_alert / unit_not_found); the alarm state shown in the API only changes once it confirms.
+    """
+    if unit_ids is None:
+        payload: dict = {}
+    else:
+        ids = sorted(set(unit_ids))
+        if not ids:
+            raise DeviceCommandError("no_unit_id", "Pilih minimal satu unit.")
+        known = set(device.units.values_list("unit_id", flat=True))
+        unknown = [i for i in ids if i not in known]
+        if unknown:
+            raise DeviceCommandError(
+                "unit_not_found", f"Unit tidak ditemukan: {', '.join(map(str, unknown))}.", status_code=404
+            )
+        payload = {"unitId": ids[0] if len(ids) == 1 else ids}
+    _publish(device, "release", payload)
     return payload
 
 

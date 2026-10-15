@@ -1,5 +1,10 @@
 """MQTT integration layer.
 
+The firmware latches an alarm once an object is confirmed: the buzzer sounds and alerts repeat until a
+`release` message (published by DeviceService.release_alarm) arrives. Units report `isObjectDetected` /
+`buzzerActive` in telemetry and config/status; a unit going from latched back to released stamps
+`released_at` on its open alerts.
+
 Two roles share one class:
   * worker    (`manage.py run_mqtt`): subscribes to device topics and writes to MySQL.
   * publisher (inside the web process): publish-only, used by DeviceService.
@@ -69,6 +74,25 @@ def _as_choice(value: Any, choices: type, default: str) -> str:
     return value if value in choices.values else default
 
 
+def _as_bool(value: Any) -> bool:
+    return value is True
+
+
+def _previous_alarm(device: Device, unit_id: int) -> bool:
+    return bool(
+        DeviceUnit.objects.filter(device=device, unit_id=unit_id).values_list("is_object_detected", flat=True).first()
+    )
+
+
+def _track_alarm(device: Device, unit_id: int, was_detected: bool, is_detected: bool, now) -> None:
+    """Latched -> released on the device: open alerts stop absorbing repeats."""
+    if was_detected and not is_detected:
+        logger.info("Alarm released on %s unit %s", device.device_id, unit_id)
+        AlertLog.objects.filter(
+            device=device, unit_id=unit_id, is_resolved=False, released_at__isnull=True
+        ).update(released_at=now)
+
+
 # --------------------------------------------------------------------------- ingest handlers
 def ingest_telemetry(device: Device, payload: Payload) -> None:
     unit_id = _as_int(payload.get("unitId"))
@@ -82,7 +106,24 @@ def ingest_telemetry(device: Device, payload: Payload) -> None:
     servo = _as_int(payload.get("servoPosition"))
     is_default = payload.get("source") == UnitSource.DEFAULT
 
+    is_detected = _as_bool(payload.get("isObjectDetected"))
+    defaults: dict[str, Any] = {
+        "is_default": is_default or unit_id == 0,
+        "has_setup": bool(payload.get("hasSetup", False)),
+        "detection_state": state,
+        "sensor_status": sensor,
+        "is_object_detected": is_detected,
+        "buzzer_active": _as_bool(payload.get("buzzerActive")),
+        "last_distance_cm": distance,
+        "servo_position": servo,
+        "last_seen_at": now,
+    }
+    buzzer_pin = _as_int(payload.get("buzzerPin"))
+    if buzzer_pin is not None:  # older firmware does not report it
+        defaults["buzzer_pin"] = buzzer_pin
+
     with transaction.atomic():
+        was_detected = _previous_alarm(device, unit_id)
         TelemetryLog.objects.create(
             device=device,
             unit_id=unit_id,
@@ -92,19 +133,8 @@ def ingest_telemetry(device: Device, payload: Payload) -> None:
             sensor_status=sensor,
             created_at=now,
         )
-        DeviceUnit.objects.update_or_create(
-            device=device,
-            unit_id=unit_id,
-            defaults={
-                "is_default": is_default or unit_id == 0,
-                "has_setup": bool(payload.get("hasSetup", False)),
-                "detection_state": state,
-                "sensor_status": sensor,
-                "last_distance_cm": distance,
-                "servo_position": servo,
-                "last_seen_at": now,
-            },
-        )
+        DeviceUnit.objects.update_or_create(device=device, unit_id=unit_id, defaults=defaults)
+        _track_alarm(device, unit_id, was_detected, is_detected, now)
         Device.objects.filter(pk=device.pk).update(last_seen_at=now)
 
 
@@ -128,6 +158,7 @@ def ingest_alert(device: Device, payload: Payload) -> None:
                 unit_id=unit_id,
                 event_name=event_name,
                 is_resolved=False,
+                released_at__isnull=True,  # a released alarm is over; a new alert is a new incident
                 updated_at__gte=now - ALERT_MERGE_WINDOW,
             )
             .order_by("-updated_at")
@@ -189,20 +220,26 @@ def ingest_config_status(device: Device, payload: Payload) -> None:
                 continue
             reported.add(unit_id)
             pins = item.get("pins") if isinstance(item.get("pins"), dict) else {}
+            was_detected = _previous_alarm(device, unit_id)
+            is_detected = _as_bool(item.get("isObjectDetected"))
             DeviceUnit.objects.update_or_create(
                 device=device,
                 unit_id=unit_id,
                 defaults={
                     "is_default": item.get("source") == UnitSource.DEFAULT or unit_id == 0,
                     "has_setup": bool(item.get("hasSetup", False)),
+                    "is_object_detected": is_detected,
+                    "buzzer_active": _as_bool(item.get("buzzerActive")),
                     "trig_pin": _as_int(pins.get("trig")),
                     "echo_pin": _as_int(pins.get("echo")),
                     "servo_pin": _as_int(pins.get("servo")),
+                    "buzzer_pin": _as_int(pins.get("buzzer")),
                     "detection_state": _as_choice(
                         item.get("detectionState"), DetectionState, DetectionState.SCANNING
                     ),
                 },
             )
+            _track_alarm(device, unit_id, was_detected, is_detected, now)
         device.units.exclude(unit_id__in=reported).delete()
 
 

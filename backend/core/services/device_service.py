@@ -51,6 +51,7 @@ class AddUnitCommand:
     trig_pin: int
     echo_pin: int
     servo_pin: int
+    buzzer_pin: int
     params: GeneralParams = GeneralParams()
 
 
@@ -96,6 +97,7 @@ class DeviceService:
         payload: dict[str, Any] = {
             "sensor": {"trig_pin": command.trig_pin, "echo_pin": command.echo_pin},
             "servo": {"pin": command.servo_pin},
+            "buzzer": {"pin": command.buzzer_pin},
             **_general_payload(command.params),
         }
         return self._publish(device, "config/set", payload)
@@ -108,6 +110,7 @@ class DeviceService:
             "ultrasonic_trig": command.trig_pin,
             "ultrasonic_echo": command.echo_pin,
             "servo_pwm": command.servo_pin,
+            "buzzer": command.buzzer_pin,
         }
         for role, pin in roles.items():
             if pin not in GPIO_RANGE:
@@ -115,11 +118,11 @@ class DeviceService:
             if pin in RESERVED_GPIO:
                 raise DeviceCommandError("reserved_pin", f"{role}: GPIO{pin} dipakai UART0 (Serial Monitor).")
         if len(set(roles.values())) != len(roles):
-            raise DeviceCommandError("pin_duplicate", "Pin trig, echo, dan servo harus berbeda.")
+            raise DeviceCommandError("pin_duplicate", "Pin trig, echo, servo, dan buzzer harus berbeda.")
 
         in_use: dict[int, str] = {}
         for unit in device.units.all():
-            for pin in (unit.trig_pin, unit.echo_pin, unit.servo_pin):
+            for pin in (unit.trig_pin, unit.echo_pin, unit.servo_pin, unit.buzzer_pin):
                 if pin is not None:
                     in_use[pin] = f"unit {unit.unit_id}"
         for role, pin in roles.items():
@@ -143,6 +146,25 @@ class DeviceService:
         unique_ids = sorted(set(unit_ids))
         payload = {"unitId": unique_ids[0] if len(unique_ids) == 1 else unique_ids}
         return self._publish(device, "config/unset", payload)
+
+    # release ------------------------------------------------------------------------
+    def release_alarm(self, device: Device, unit_ids: list[int] | None = None) -> PublishedCommand:
+        """Stop alert repeats and silence the buzzer of latched units.
+
+        No `unit_ids` -> empty payload: the firmware releases every unit in alarm. The firmware
+        answers on config/status (release_ok / no_active_alert / unit_not_found); the alarm flags on
+        DeviceUnit only change once it confirms.
+        """
+        if unit_ids is None:
+            return self._publish(device, "release", {})
+        if not unit_ids:
+            raise DeviceCommandError("no_unit_id", "Pilih minimal satu unit.")
+        known = set(device.units.values_list("unit_id", flat=True))
+        missing = sorted(set(unit_ids) - known)
+        if missing:
+            raise DeviceCommandError("unit_not_found", f"Unit tidak ditemukan: {', '.join(map(str, missing))}.")
+        unique_ids = sorted(set(unit_ids))
+        return self._publish(device, "release", {"unitId": unique_ids[0] if len(unique_ids) == 1 else unique_ids})
 
     # config/general -----------------------------------------------------------------
     def update_general(self, device: Device, params: GeneralParams) -> PublishedCommand:

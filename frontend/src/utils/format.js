@@ -21,8 +21,21 @@ export function formatClock(date) {
   return date ? date.toLocaleTimeString("en-GB") : "-";
 }
 
+/** The firmware reports 999.9 cm when the sensor got no echo (nothing in range). */
+export const NO_ECHO_CM = 999.9;
+
+export function hasEcho(cm) {
+  return cm !== null && cm !== undefined && cm < NO_ECHO_CM;
+}
+
 export function formatDistance(cm) {
   return cm === null || cm === undefined ? "-" : `${number.format(cm)} cm`;
+}
+
+/** A live sensor reading: "tidak ada objek" instead of the 999.9 cm no-echo sentinel. */
+export function formatReading(cm) {
+  if (cm === null || cm === undefined) return "-";
+  return hasEcho(cm) ? formatDistance(cm) : "tidak ada objek";
 }
 
 export function mapsUrl(latitude, longitude) {
@@ -50,17 +63,29 @@ export const HEALTH = {
   offline: { key: "offline", label: "Offline", short: "Offline", tone: "offline", rank: 3 },
 };
 
+/**
+ * True while a unit's alarm is latched (it stays on, even after the object left, until released).
+ * Firmware without `is_object_detected` falls back to the confirmed state.
+ */
+export function isAlarm(unit) {
+  return unit.is_object_detected ?? unit.detection_state === "confirmed";
+}
+
 export function deviceHealth(device) {
   if (!device.is_online) return HEALTH.offline;
-  const states = device.units.map((unit) => unit.detection_state);
-  if (states.includes("confirmed")) return HEALTH.alert;
-  if (states.includes("tracking")) return HEALTH.tracking;
+  if (device.units.some(isAlarm)) return HEALTH.alert;
+  if (device.units.some((unit) => unit.detection_state === "tracking")) return HEALTH.tracking;
   return HEALTH.ok;
+}
+
+/** "T / E / S / B" pin string; "-" for pins the device has not reported (older firmware has no buzzer). */
+export function formatPins(unit, separator = " / ") {
+  return [unit.trig_pin, unit.echo_pin, unit.servo_pin, unit.buzzer_pin].map((pin) => pin ?? "-").join(separator);
 }
 
 /** Smallest live distance reading among a device's units, or null when no unit sees an object. */
 export function nearestDistance(device) {
-  const readings = device.units.map((unit) => unit.last_distance_cm).filter((value) => value !== null && value !== undefined);
+  const readings = device.units.map((unit) => unit.last_distance_cm).filter(hasEcho);
   return readings.length ? Math.min(...readings) : null;
 }
 

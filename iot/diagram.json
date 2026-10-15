@@ -5,7 +5,14 @@
   "parts": [
     { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": -19.2, "left": -91.16, "attrs": {} },
     { "type": "wokwi-servo", "id": "servo1", "top": -69.2, "left": 105.6, "attrs": {} },
-    { "type": "wokwi-hc-sr04", "id": "ultrasonic1", "top": 59.1, "left": 101.5, "attrs": {} }
+    { "type": "wokwi-hc-sr04", "id": "ultrasonic1", "top": 59.1, "left": 101.5, "attrs": {} },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": -112.8,
+      "left": 21,
+      "attrs": { "volume": "0.1" }
+    }
   ],
   "connections": [
     [ "esp:TX", "$serialMonitor:RX", "", [] ],
@@ -21,7 +28,9 @@
     ],
     [ "servo1:PWM", "esp:23", "green", [ "h-86.4", "v19.4" ] ],
     [ "ultrasonic1:TRIG", "esp:22", "green", [ "v9.6", "h-96.4", "v-144" ] ],
-    [ "ultrasonic1:ECHO", "esp:21", "green", [ "v19.2", "h-116", "v-115.2" ] ]
+    [ "ultrasonic1:ECHO", "esp:21", "green", [ "v19.2", "h-116", "v-115.2" ] ],
+    [ "bz1:2", "esp:19", "red", [ "v0" ] ],
+    [ "bz1:1", "esp:GND.3", "black", [ "v0" ] ]
   ],
   "dependencies": {}
 }

@@ -92,6 +92,11 @@ function AlertRow({ alert, onResolve, resolving }) {
         Objek berjarak {formatDistance(alert.distance_cm)} dari sensor · terakhir terdeteksi {timeAgo(alert.last_occurred_at)}
         {alert.occurrences > 1 && ` · ${alert.occurrences} kali dilaporkan`}
       </p>
+      {!alert.is_resolved && (
+        <p className="text-[13px] text-muted">
+          “Tandai selesai” hanya mencatat penanganan. Buzzer di lapangan baru mati setelah alarm dilepas di halaman perangkat.
+        </p>
+      )}
       {alert.is_resolved && (
         <p className="text-[13px] text-muted">
           Ditandai selesai oleh {alert.resolved_by_name ?? "-"} pada {formatDateTime(alert.resolved_at)}
@@ -102,6 +107,11 @@ function AlertRow({ alert, onResolve, resolving }) {
           <Button size="sm" variant="secondary" icon={Check} loading={resolving} onClick={() => onResolve(alert.id)}>
             Tandai selesai
           </Button>
+        )}
+        {!alert.is_resolved && (
+          <Link to={`/devices/${alert.device_id}`} className="text-sm font-semibold text-tech-text hover:underline">
+            Lepas alarm di perangkat
+          </Link>
         )}
         {alert.latitude != null && (
           <a

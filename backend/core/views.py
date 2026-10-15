@@ -12,6 +12,7 @@ from core.serializers import (
     AlertSerializer,
     DeviceSerializer,
     GeneralConfigSerializer,
+    ReleaseSerializer,
     SetConfigSerializer,
     TelemetrySerializer,
     UnsetConfigSerializer,
@@ -50,6 +51,8 @@ class DeviceViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ("list", "retrieve", "telemetry"):
             return [IsAuthenticated()]
+        if self.action == "release":  # silencing an alarm is part of handling an alert: field officers too
+            return [(IsOperator | IsSatpolPP)()]
         return [IsOperator()]
 
     @staticmethod
@@ -74,6 +77,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
             trig_pin=data["sensor"]["trig_pin"],
             echo_pin=data["sensor"]["echo_pin"],
             servo_pin=data["servo"]["pin"],
+            buzzer_pin=data["buzzer"]["pin"],
             params=GeneralParams(**{key: data.get(key) for key in GENERAL_FIELDS}),
         )
         try:
@@ -99,6 +103,17 @@ class DeviceViewSet(viewsets.ModelViewSet):
         params = GeneralParams(**{key: serializer.validated_data.get(key) for key in GENERAL_FIELDS})
         try:
             return self._accepted(self.device_service.update_general(device, params))
+        except (DeviceCommandError, MqttUnavailableError) as exc:
+            return self._error(exc)
+
+    @action(detail=True, methods=["post"], url_path="release")
+    def release(self, request: Request, pk=None) -> Response:
+        """Stop alerts and silence the buzzer. Body: {} (all units in alarm) or {"unit_ids": [1, 2]}."""
+        device = self.get_object()
+        serializer = ReleaseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            return self._accepted(self.device_service.release_alarm(device, serializer.validated_data.get("unit_ids")))
         except (DeviceCommandError, MqttUnavailableError) as exc:
             return self._error(exc)
 

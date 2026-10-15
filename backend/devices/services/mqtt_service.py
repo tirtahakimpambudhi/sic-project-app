@@ -7,8 +7,12 @@ Two roles, both running paho's network loop on its own thread (`loop_start`):
   persists everything the ESP32 reports through the Django ORM.
 
 Topic contract (prefix ``iot/<DEVICE_ID>/``):
-    publish   -> config/set, config/unset, config/general
+    publish   -> config/set, config/unset, config/general, release
     subscribe <- telemetry, alert, config/status
+
+The firmware latches an alarm once an object is confirmed: the buzzer sounds and alerts repeat until a
+``release`` message arrives. Units report ``isObjectDetected`` / ``buzzerActive`` in telemetry and
+config/status; a unit going from latched back to released stamps ``released_at`` on its open alerts.
 """
 import json
 import logging
@@ -126,6 +130,25 @@ def _to_int(value):
     return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def _to_bool(value) -> bool:
+    return value is True
+
+
+def _mark_alerts_released(device, unit_id: int, now) -> None:
+    """The unit's alarm was released on the device: its open alerts stop absorbing repeats."""
+    from devices.models import AlertLog
+
+    AlertLog.objects.filter(device=device, unit_id=unit_id, is_resolved=False, released_at__isnull=True).update(
+        released_at=now
+    )
+
+
+def _track_alarm(device, unit_id: int, was_detected: bool, is_detected: bool, now) -> None:
+    if was_detected and not is_detected:
+        logger.info("Alarm released on %s unit %s", device.device_id, unit_id)
+        _mark_alerts_released(device, unit_id, now)
+
+
 class MqttListener(_MqttConnection):
     def __init__(self):
         super().__init__("slop-worker")
@@ -187,18 +210,25 @@ class MqttListener(_MqttConnection):
         servo_position = _to_int(data.get("servoPosition"))
         state = str(data.get("detectionState", ""))
 
-        DeviceUnit.objects.update_or_create(
-            device=device,
-            unit_id=unit_id,
-            defaults={
-                "is_default": data.get("source") == "default",
-                "has_setup": bool(data.get("hasSetup", False)),
-                "detection_state": state,
-                "last_distance_cm": distance,
-                "servo_position": servo_position,
-                "last_seen": now,
-            },
+        was_detected = bool(
+            DeviceUnit.objects.filter(device=device, unit_id=unit_id).values_list("is_object_detected", flat=True).first()
         )
+        is_detected = _to_bool(data.get("isObjectDetected"))
+        defaults = {
+            "is_default": data.get("source") == "default",
+            "has_setup": bool(data.get("hasSetup", False)),
+            "detection_state": state,
+            "is_object_detected": is_detected,
+            "buzzer_active": _to_bool(data.get("buzzerActive")),
+            "last_distance_cm": distance,
+            "servo_position": servo_position,
+            "last_seen": now,
+        }
+        buzzer_pin = _to_int(data.get("buzzerPin"))
+        if buzzer_pin is not None:  # older firmware does not report it
+            defaults["buzzer_pin"] = buzzer_pin
+        DeviceUnit.objects.update_or_create(device=device, unit_id=unit_id, defaults=defaults)
+        _track_alarm(device, unit_id, was_detected, is_detected, now)
         TelemetryLog.objects.create(
             device=device,
             unit_id=unit_id,
@@ -224,7 +254,13 @@ class MqttListener(_MqttConnection):
         merge_after = now - timedelta(seconds=settings.ALERT_MERGE_WINDOW_SECONDS)
         open_alert = (
             AlertLog.objects.select_for_update()
-            .filter(device=device, unit_id=unit_id, is_resolved=False, last_occurred_at__gte=merge_after)
+            .filter(
+                device=device,
+                unit_id=unit_id,
+                is_resolved=False,
+                released_at__isnull=True,  # a released alarm is over; a new alert is a new incident
+                last_occurred_at__gte=merge_after,
+            )
             .first()
         )
         if open_alert:
@@ -266,6 +302,12 @@ class MqttListener(_MqttConnection):
                 continue
             pins = item.get("pins") if isinstance(item.get("pins"), dict) else {}
             reported_ids.append(unit_id)
+            was_detected = bool(
+                DeviceUnit.objects.filter(device=device, unit_id=unit_id)
+                .values_list("is_object_detected", flat=True)
+                .first()
+            )
+            is_detected = _to_bool(item.get("isObjectDetected"))
             DeviceUnit.objects.update_or_create(
                 device=device,
                 unit_id=unit_id,
@@ -273,11 +315,15 @@ class MqttListener(_MqttConnection):
                     "is_default": item.get("source") == "default",
                     "has_setup": bool(item.get("hasSetup", False)),
                     "detection_state": str(item.get("detectionState", "")),
+                    "is_object_detected": is_detected,
+                    "buzzer_active": _to_bool(item.get("buzzerActive")),
                     "trig_pin": _to_int(pins.get("trig")),
                     "echo_pin": _to_int(pins.get("echo")),
                     "servo_pin": _to_int(pins.get("servo")),
+                    "buzzer_pin": _to_int(pins.get("buzzer")),
                 },
             )
+            _track_alarm(device, unit_id, was_detected, is_detected, now)
         if reported_ids:
             device.units.exclude(unit_id__in=reported_ids).delete()  # units removed via config/unset
 

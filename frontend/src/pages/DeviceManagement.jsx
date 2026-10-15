@@ -12,11 +12,21 @@ import { SkeletonRows } from "../components/Skeleton.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import Table from "../components/Table.jsx";
 import { useNotification } from "../context/NotificationContext.jsx";
+import useCommandFeedback from "../hooks/useCommandFeedback.js";
 import useDevices from "../hooks/useDevices.js";
 import api, { apiErrorMessage } from "../services/api.js";
-import { detectionState, timeAgo } from "../utils/format.js";
-
-const MAX_UNITS = 4;
+import { detectionState, formatPins, isAlarm, timeAgo } from "../utils/format.js";
+import {
+  MAX_UNITS,
+  PIN_FIELDS,
+  addUnitBlocker,
+  allowedPins,
+  buildAddUnitBody,
+  pinLabel,
+  usedPins,
+  validateGeneral,
+  validateUnitPins,
+} from "../utils/pins.js";
 
 /* ------------------------------------------------------------------ create device */
 function CreateDeviceForm({ onCreated, onCancel }) {
@@ -74,7 +84,7 @@ function CreateDeviceForm({ onCreated, onCancel }) {
 }
 
 /* ------------------------------------------------------------------ global parameters */
-function ParametersForm({ device, onSaved }) {
+function ParametersForm({ device, onSaved, feedback }) {
   const { notify } = useNotification();
   const initial = {
     name: device.name,
@@ -85,6 +95,7 @@ function ParametersForm({ device, onSaved }) {
   };
   const [form, setForm] = useState(initial);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const set = (field) => (event) => setForm((previous) => ({ ...previous, [field]: event.target.value }));
   const dirty = Object.keys(initial).some((key) => initial[key] !== form[key]);
@@ -92,7 +103,15 @@ function ParametersForm({ device, onSaved }) {
   async function submit(event) {
     event.preventDefault();
     setError("");
+    const errors = validateGeneral(form);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    // Only the two global parameters travel to the board (config/general); name and coordinates stay server-side.
+    const sendsToBoard =
+      initial.tolerant_distance_cm !== form.tolerant_distance_cm || initial.timeout_seconds !== form.timeout_seconds;
     setSaving(true);
+    if (sendsToBoard) feedback.begin("general");
     try {
       await api.patch(`/devices/${device.device_id}/`, {
         name: form.name.trim(),
@@ -101,9 +120,10 @@ function ParametersForm({ device, onSaved }) {
         latitude: Number(form.latitude),
         longitude: Number(form.longitude),
       });
-      notify("Parameter disimpan dan dikirim ke perangkat.");
+      if (!sendsToBoard) notify("Perubahan disimpan.");
       await onSaved();
     } catch (err) {
+      if (sendsToBoard) feedback.cancel();
       setError(apiErrorMessage(err));
     } finally {
       setSaving(false);
@@ -111,16 +131,16 @@ function ParametersForm({ device, onSaved }) {
   }
 
   return (
-    <Card title="Parameter perangkat" description="Berlaku untuk semua unit. Perubahan langsung dikirim ke ESP32.">
+    <Card title="Parameter perangkat" description="Berlaku untuk semua unit, termasuk yang sedang melacak. Hasilnya dilaporkan perangkat dan muncul sebagai pemberitahuan.">
       <form onSubmit={submit} className="grid gap-4 p-4 sm:grid-cols-2" noValidate>
         {error && <div className="sm:col-span-2"><InlineAlert>{error}</InlineAlert></div>}
         <Field label="Nama titik" className="sm:col-span-2">
           {(p) => <input {...p} className="input" required value={form.name} onChange={set("name")} />}
         </Field>
-        <Field label="Jarak toleransi (cm)" hint="0,1 sampai 400 cm. Objek lebih dekat dari ini dihitung melanggar.">
-          {(p) => <input {...p} className="input" type="number" step="0.1" min="0.1" max="400" required value={form.tolerant_distance_cm} onChange={set("tolerant_distance_cm")} />}
+        <Field label="Jarak toleransi (cm)" error={fieldErrors.tolerant_distance_cm} hint="Lebih dari 0 sampai 400 cm. Objek lebih dekat dari ini dihitung melanggar.">
+          {(p) => <input {...p} className="input" type="number" step="any" min="0" max="400" required value={form.tolerant_distance_cm} onChange={set("tolerant_distance_cm")} />}
         </Field>
-        <Field label="Batas waktu (detik)" hint="1 sampai 86.400 detik (24 jam) sebelum peringatan dikirim.">
+        <Field label="Batas waktu (detik)" error={fieldErrors.timeout_seconds} hint="Bilangan bulat 1 sampai 86.400 detik (24 jam) sebelum alarm terkonfirmasi.">
           {(p) => <input {...p} className="input" type="number" step="1" min="1" max="86400" required value={form.timeout_seconds} onChange={set("timeout_seconds")} />}
         </Field>
         <Field label="Latitude">
@@ -130,7 +150,7 @@ function ParametersForm({ device, onSaved }) {
           {(p) => <input {...p} className="input" type="number" step="any" min="-180" max="180" required value={form.longitude} onChange={set("longitude")} />}
         </Field>
         <div className="sm:col-span-2">
-          <Button type="submit" icon={Save} loading={saving} disabled={!dirty}>Simpan & kirim ke perangkat</Button>
+          <Button type="submit" icon={Save} loading={saving} disabled={!dirty || Boolean(feedback.pending)}>Simpan & kirim ke perangkat</Button>
         </div>
       </form>
     </Card>
@@ -138,52 +158,74 @@ function ParametersForm({ device, onSaved }) {
 }
 
 /* ------------------------------------------------------------------ dynamic units */
-function AddUnitForm({ device, onSent }) {
-  const [pins, setPins] = useState({ trig_pin: "", echo_pin: "", servo_pin: "" });
+const EMPTY_PINS = { trig_pin: "", echo_pin: "", servo_pin: "", buzzer_pin: "" };
+
+function AddUnitForm({ device, feedback }) {
+  const [pins, setPins] = useState(EMPTY_PINS);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [sending, setSending] = useState(false);
-  const full = device.units.length >= MAX_UNITS;
   const set = (field) => (event) => setPins((previous) => ({ ...previous, [field]: event.target.value }));
-  const complete = Object.values(pins).every((value) => value !== "");
+
+  const blocker = addUnitBlocker(device);
+  if (blocker) return <p className="p-4 text-sm text-muted">{blocker}</p>;
+
+  const options = allowedPins(device.device_type);
+  const inUse = usedPins(device.units);
+  const complete = PIN_FIELDS.every(({ key }) => pins[key] !== "");
 
   async function submit(event) {
     event.preventDefault();
     setError("");
+    const errors = validateUnitPins(device, pins);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
     setSending(true);
+    feedback.begin("set");
     try {
-      await api.post(`/devices/${device.device_id}/units/`, {
-        trig_pin: Number(pins.trig_pin),
-        echo_pin: Number(pins.echo_pin),
-        servo_pin: Number(pins.servo_pin),
-      });
-      setPins({ trig_pin: "", echo_pin: "", servo_pin: "" });
-      onSent();
+      await api.post(`/devices/${device.device_id}/units/`, buildAddUnitBody(pins));
+      setPins(EMPTY_PINS);
     } catch (err) {
+      feedback.cancel();
       setError(apiErrorMessage(err));
     } finally {
       setSending(false);
     }
   }
 
-  if (full) {
-    return <p className="p-4 text-sm text-muted">Slot penuh: maksimum {MAX_UNITS} unit (1 default + 3 dinamis). Hapus unit dinamis untuk menambah yang baru.</p>;
-  }
-
   return (
     <form onSubmit={submit} className="space-y-4 p-4" noValidate>
       <div>
-        <h3 className="text-sm font-semibold">Tambah unit sensor + servo</h3>
-        <p className="hint">Pin GPIO 1 dan 3 (UART0) serta pin yang dipakai unit lain ditolak. TRIG dan SERVO butuh pin output.</p>
+        <h3 className="text-sm font-semibold">Tambah unit sensor + servo + buzzer</h3>
+        <p className="hint">
+          Pilihan pin mengikuti jenis perangkat ({device.device_type}). Satu unit memakai 4 pin berbeda; pin yang sudah
+          dipakai unit lain tidak bisa dipilih.
+        </p>
       </div>
       {error && <InlineAlert>{error}</InlineAlert>}
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[["trig_pin", "Pin TRIG"], ["echo_pin", "Pin ECHO"], ["servo_pin", "Pin SERVO"]].map(([key, label]) => (
-          <Field key={key} label={label}>
-            {(p) => <input {...p} className="input font-mono" type="number" min="0" max="39" step="1" inputMode="numeric" required value={pins[key]} onChange={set(key)} placeholder="GPIO" />}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {PIN_FIELDS.map(({ key, label }) => (
+          <Field key={key} label={label} error={fieldErrors[key]}>
+            {(p) => (
+              <select {...p} className="input font-mono" required value={pins[key]} onChange={set(key)}>
+                <option value="">Pilih GPIO</option>
+                {options.map((pin) => {
+                  const owner = inUse.get(pin);
+                  const takenBy = PIN_FIELDS.find((other) => other.key !== key && pins[other.key] === String(pin));
+                  return (
+                    <option key={pin} value={pin} disabled={owner !== undefined || Boolean(takenBy)}>
+                      {pinLabel(device.device_type, pin)}
+                      {owner !== undefined ? ` · dipakai unit ${owner}` : takenBy ? ` · dipilih di ${takenBy.label}` : ""}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
           </Field>
         ))}
       </div>
-      <Button type="submit" icon={Send} loading={sending} disabled={!complete}>Kirim ke perangkat</Button>
+      <Button type="submit" icon={Send} loading={sending} disabled={!complete || Boolean(feedback.pending)}>Kirim ke perangkat</Button>
     </form>
   );
 }
@@ -222,7 +264,7 @@ function UnsetUnitsModal({ device, unitIds, onClose, onConfirm }) {
     >
       <div className="space-y-3 text-sm">
         <p>
-          Sensor ultrasonik dan servo pada unit <strong>{unitIds.join(", ")}</strong> akan berhenti dan pin GPIO-nya dilepas
+          Sensor ultrasonik, servo, dan buzzer pada unit <strong>{unitIds.join(", ")}</strong> akan berhenti dan pin GPIO-nya dilepas
           (High-Z) setelah perangkat mengonfirmasi. Unit hanya hilang dari daftar bila perangkat melaporkannya.
         </p>
         <div className="rounded-control bg-sunken px-3 py-2 font-mono text-[12px]">
@@ -241,7 +283,7 @@ function UnitsTable({ device, selected, onToggle, onRequestUnset }) {
         <tr>
           <th className="w-10"><span className="sr-only">Pilih</span></th>
           <th>Unit</th>
-          <th className="hidden sm:table-cell">Pin T / E / S</th>
+          <th className="hidden sm:table-cell">Pin T / E / S / B</th>
           <th>Status</th>
           <th className="text-right">Tindakan</th>
         </tr>
@@ -268,11 +310,14 @@ function UnitsTable({ device, selected, onToggle, onRequestUnset }) {
                 {unit.unit_id}
                 <span className="ml-2 text-[12px] font-normal text-muted">{unit.is_default ? "default" : "dinamis"}</span>
                 <span className="mt-0.5 block font-mono text-[12px] font-normal text-muted sm:hidden">
-                  T/E/S {[unit.trig_pin, unit.echo_pin, unit.servo_pin].map((p) => p ?? "-").join("/")}
+                  T/E/S/B {formatPins(unit, "/")}
                 </span>
               </td>
-              <td className="hidden font-mono text-[13px] sm:table-cell">{[unit.trig_pin, unit.echo_pin, unit.servo_pin].map((p) => p ?? "-").join(" / ")}</td>
-              <td>{unit.detection_state ? <StatusBadge tone={state.tone}>{state.label}</StatusBadge> : <span className="text-muted">Menunggu data</span>}</td>
+              <td className="hidden font-mono text-[13px] sm:table-cell">{formatPins(unit)}</td>
+              <td>
+                {unit.detection_state ? <StatusBadge tone={state.tone}>{state.label}</StatusBadge> : <span className="text-muted">Menunggu data</span>}
+                {isAlarm(unit) && <span className="mt-0.5 block text-[12px] font-bold text-danger">ALARM AKTIF</span>}
+              </td>
               <td className="text-right">
                 {unit.is_default ? (
                   <span className="text-[13px] text-muted">Permanen</span>
@@ -288,16 +333,10 @@ function UnitsTable({ device, selected, onToggle, onRequestUnset }) {
   );
 }
 
-function UnitsCard({ device, refresh }) {
+function UnitsCard({ device, refresh, feedback }) {
   const { notify } = useNotification();
-  const [pending, setPending] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [unsetIds, setUnsetIds] = useState(null); // unit ids awaiting confirmation in the modal
-
-  // The board answers on config/status; once setup_reported_at moves, the command is settled.
-  useEffect(() => {
-    if (pending && (device.setup_reported_at ?? null) !== pending.baseline) setPending(null);
-  }, [device.setup_reported_at, pending]);
 
   // Drop selections for units that disappeared after the board confirmed the unset.
   useEffect(() => {
@@ -307,8 +346,6 @@ function UnitsCard({ device, refresh }) {
       return kept.length === current.size ? current : new Set(kept);
     });
   }, [device.units]);
-
-  const markPending = () => setPending({ baseline: device.setup_reported_at ?? null, startedAt: Date.now() });
 
   const toggle = (unitId) =>
     setSelected((current) => {
@@ -320,13 +357,13 @@ function UnitsCard({ device, refresh }) {
 
   /** Publishes config/unset through the API (POST .../units/unset/) for one or several unit ids. */
   async function unset(unitIds) {
+    feedback.begin("unset");
     try {
       await api.post(`/devices/${device.device_id}/units/unset/`, { unit_ids: unitIds });
-      markPending();
       setSelected(new Set());
-      notify("Perintah unset terkirim. Menunggu konfirmasi perangkat.");
       await refresh();
     } catch (err) {
+      feedback.cancel();
       notify(apiErrorMessage(err), "danger");
       throw err;
     }
@@ -336,7 +373,7 @@ function UnitsCard({ device, refresh }) {
 
   return (
     <Card
-      title="Unit sensor & servo"
+      title="Unit sensor, servo & buzzer"
       description={`${device.units.length} dari ${MAX_UNITS} slot terpakai`}
       actions={
         selectedIds.length > 0 && (
@@ -346,18 +383,43 @@ function UnitsCard({ device, refresh }) {
         )
       }
     >
-      <UnitsTable device={device} selected={selected} onToggle={toggle} onRequestUnset={setUnsetIds} />
+      {device.units.length === 0 ? (
+        <EmptyState title="Belum ada data unit">
+          Status perangkat tidak disimpan broker. Data muncul setelah perangkat terhubung dan melapor.
+        </EmptyState>
+      ) : (
+        <UnitsTable device={device} selected={selected} onToggle={toggle} onRequestUnset={setUnsetIds} />
+      )}
       <div className="space-y-3 border-t border-line p-4">
         <h3 className="text-sm font-semibold">Hasil perintah terakhir</h3>
-        <CommandResult device={device} pending={pending} />
+        <CommandResult device={device} feedback={feedback} />
       </div>
       <div className="border-t border-line">
-        <AddUnitForm device={device} onSent={() => { markPending(); refresh(); }} />
+        <AddUnitForm device={device} feedback={feedback} />
       </div>
       {unsetIds && (
         <UnsetUnitsModal device={device} unitIds={unsetIds} onClose={() => setUnsetIds(null)} onConfirm={unset} />
       )}
     </Card>
+  );
+}
+
+/** Owns the command feedback for one device, so every form below shares the same "waiting for the board" state. */
+function DevicePanel({ device, refresh, onRemoved }) {
+  const feedback = useCommandFeedback(device, refresh);
+  return (
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap items-baseline gap-x-3">
+        <h2 className="text-xl font-bold">{device.name}</h2>
+        <Link to={`/devices/${device.device_id}`} className="text-sm font-semibold text-tech-text hover:underline">Lihat pemantauan</Link>
+      </div>
+      <p className="-mt-3 text-sm text-muted">
+        Jenis perangkat: {device.device_type ? <span className="font-semibold text-ink">{device.device_type}</span> : "menunggu status dari perangkat"}
+      </p>
+      <ParametersForm device={device} onSaved={refresh} feedback={feedback} />
+      <UnitsCard device={device} refresh={refresh} feedback={feedback} />
+      <RemoveDevice device={device} onRemoved={onRemoved} />
+    </div>
   );
 }
 
@@ -459,15 +521,12 @@ export default function DeviceManagement() {
           </nav>
 
           {selected && (
-            <div className="min-w-0 space-y-6">
-              <div className="flex flex-wrap items-baseline gap-x-3">
-                <h2 className="text-xl font-bold">{selected.name}</h2>
-                <Link to={`/devices/${selected.device_id}`} className="text-sm font-semibold text-tech-text hover:underline">Lihat pemantauan</Link>
-              </div>
-              <ParametersForm key={selected.device_id} device={selected} onSaved={refresh} />
-              <UnitsCard key={`${selected.device_id}-units`} device={selected} refresh={refresh} />
-              <RemoveDevice device={selected} onRemoved={() => { setSelectedId(null); refresh(); }} />
-            </div>
+            <DevicePanel
+              key={selected.device_id}
+              device={selected}
+              refresh={refresh}
+              onRemoved={() => { setSelectedId(null); refresh(); }}
+            />
           )}
         </div>
       )}

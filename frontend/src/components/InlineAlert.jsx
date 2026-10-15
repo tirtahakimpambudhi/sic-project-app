@@ -1,8 +1,9 @@
-import { CheckCircle2, CircleAlert, Hourglass } from "lucide-react";
+import { CheckCircle2, CircleAlert, Hourglass, Info } from "lucide-react";
 
 const TONES = {
   danger: { box: "bg-danger-soft", icon: "text-danger", Icon: CircleAlert },
   success: { box: "bg-ok-soft", icon: "text-ok", Icon: CheckCircle2 },
+  info: { box: "bg-tech-soft", icon: "text-tech-text", Icon: Info },
   pending: { box: "bg-warn-soft", icon: "text-warn-text", Icon: Hourglass },
 };
 

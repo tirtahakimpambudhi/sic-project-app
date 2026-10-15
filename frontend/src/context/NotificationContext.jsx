@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import { CheckCircle2, CircleAlert, X } from "lucide-react";
+import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 
 const NotificationContext = createContext(null);
 const LIFETIME_MS = 5000;
@@ -36,10 +36,12 @@ export function NotificationProvider({ children }) {
           >
             {item.tone === "success" ? (
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-ok" aria-hidden />
+            ) : item.tone === "info" ? (
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-tech-text" aria-hidden />
             ) : (
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
             )}
-            <p className="flex-1">{item.message}</p>
+            <p className="min-w-0 flex-1 break-words">{item.message}</p>
             <button className="text-muted hover:text-ink" onClick={() => dismiss(item.id)} aria-label="Tutup pemberitahuan">
               <X className="h-4 w-4" aria-hidden />
             </button>

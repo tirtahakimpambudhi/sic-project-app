@@ -10,8 +10,9 @@ class DeviceUnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceUnit
         fields = (
-            "unit_id", "is_default", "has_setup", "trig_pin", "echo_pin", "servo_pin",
-            "detection_state", "last_distance_cm", "servo_position", "last_seen",
+            "unit_id", "is_default", "has_setup", "trig_pin", "echo_pin", "servo_pin", "buzzer_pin",
+            "detection_state", "is_object_detected", "buzzer_active",
+            "last_distance_cm", "servo_position", "last_seen",
         )
 
 
@@ -38,6 +39,15 @@ class AddUnitSerializer(serializers.Serializer):
     trig_pin = gpio_field()
     echo_pin = gpio_field()
     servo_pin = gpio_field()
+    buzzer_pin = gpio_field()
+
+
+class ReleaseSerializer(serializers.Serializer):
+    """Omit unit_ids to release every unit that is currently in alarm."""
+
+    unit_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=0, max_value=3), allow_empty=False, required=False
+    )
 
 
 class UnsetUnitsSerializer(serializers.Serializer):
@@ -60,7 +70,7 @@ class AlertLogSerializer(serializers.ModelSerializer):
         fields = (
             "id", "device_id", "device_name", "unit_id", "event_name", "alert_type", "message",
             "distance_cm", "latitude", "longitude", "occurrences", "created_at", "last_occurred_at",
-            "is_resolved", "resolved_by_name", "resolved_at",
+            "released_at", "is_resolved", "resolved_by_name", "resolved_at",
         )
 
     def get_resolved_by_name(self, obj):

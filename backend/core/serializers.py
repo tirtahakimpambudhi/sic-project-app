@@ -17,8 +17,8 @@ class DeviceUnitSerializer(serializers.ModelSerializer):
         model = DeviceUnit
         fields = [
             "unit_id", "source", "is_default", "has_setup",
-            "trig_pin", "echo_pin", "servo_pin",
-            "detection_state", "sensor_status", "last_distance_cm", "servo_position", "last_seen_at",
+            "trig_pin", "echo_pin", "servo_pin", "buzzer_pin",
+            "detection_state", "is_object_detected", "buzzer_active", "sensor_status", "last_distance_cm", "servo_position", "last_seen_at",
         ]
         read_only_fields = fields
 
@@ -69,7 +69,7 @@ class AlertSerializer(serializers.ModelSerializer):
         fields = [
             "id", "device", "device_name", "device_uid", "unit_id", "event_name", "alert_type", "message",
             "distance_cm", "latitude", "longitude", "repeat_count",
-            "is_resolved", "resolved_at", "resolved_by", "created_at", "updated_at",
+            "released_at", "is_resolved", "resolved_at", "resolved_by", "created_at", "updated_at",
         ]
         read_only_fields = fields
 
@@ -92,9 +92,14 @@ class ServoPinSerializer(serializers.Serializer):
     pin = serializers.IntegerField()
 
 
+class BuzzerPinSerializer(serializers.Serializer):
+    pin = serializers.IntegerField()
+
+
 class SetConfigSerializer(_GeneralFields):
     sensor = SensorPinsSerializer()
     servo = ServoPinSerializer()
+    buzzer = BuzzerPinSerializer()
 
 
 class UnsetConfigSerializer(serializers.Serializer):
@@ -103,3 +108,9 @@ class UnsetConfigSerializer(serializers.Serializer):
 
 class GeneralConfigSerializer(_GeneralFields):
     pass
+
+
+class ReleaseSerializer(serializers.Serializer):
+    """Omit unit_ids to release every unit that is currently in alarm."""
+
+    unit_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False, required=False)
