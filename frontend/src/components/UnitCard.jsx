@@ -1,4 +1,4 @@
-import { BellRing, Unlock, Volume2, VolumeX } from "lucide-react";
+import { BellRing, Trash2, Unlock, Volume2, VolumeX } from "lucide-react";
 import { detectionState, formatPins, formatReading, isAlarm, timeAgo } from "../utils/format.js";
 import Button from "./Button.jsx";
 import StatusBadge from "./StatusBadge.jsx";
@@ -21,7 +21,14 @@ function BuzzerIndicator({ active }) {
  * One unit = one card (key it by unit_id). The alarm badge and release button follow `is_object_detected`,
  * so they clear as soon as the next telemetry/status says the alarm is released.
  */
-export default function UnitCard({ unit, onRelease, releaseDisabled }) {
+export default function UnitCard({
+  unit,
+  onRelease,
+  releaseDisabled,
+  showUnset = false,
+  onUnset,
+  unsetDisabled = false,
+}) {
   const alarm = isAlarm(unit);
   const hasData = unit.has_setup || unit.detection_state;
   const state = detectionState(unit.detection_state);
@@ -71,7 +78,7 @@ export default function UnitCard({ unit, onRelease, releaseDisabled }) {
         </div>
       </dl>
 
-      <div className="mt-4 border-t border-line pt-3">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
         <Button
           size="sm"
           variant={alarm ? "danger" : "secondary"}
@@ -81,7 +88,20 @@ export default function UnitCard({ unit, onRelease, releaseDisabled }) {
         >
           Lepas alarm
         </Button>
+        {showUnset && !unit.is_default && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-danger hover:bg-danger/10 hover:text-danger"
+            icon={Trash2}
+            disabled={unsetDisabled}
+            onClick={() => onUnset && onUnset(unit.unit_id)}
+          >
+            Hapus unit
+          </Button>
+        )}
       </div>
     </article>
   );
 }
+
