@@ -16,10 +16,10 @@ export const PIN_ALLOWLIST = {
 const ESP8266_LABELS = { 4: "D2", 5: "D1", 12: "D6", 13: "D7", 14: "D5" };
 
 export const PIN_FIELDS = [
-  { key: "trig_pin", label: "Pin TRIG" },
-  { key: "echo_pin", label: "Pin ECHO" },
-  { key: "servo_pin", label: "Pin SERVO" },
-  { key: "buzzer_pin", label: "Pin BUZZER" },
+  { key: "trig_pin", label: "Pin T (TRIG)", code: "T", role: "Trigger" },
+  { key: "echo_pin", label: "Pin E (ECHO)", code: "E", role: "Echo" },
+  { key: "servo_pin", label: "Pin S (SERVO)", code: "S", role: "Servo" },
+  { key: "buzzer_pin", label: "Pin B (BUZZER)", code: "B", role: "Buzzer" },
 ];
 
 /** Allowed pins for a device type, or null while the type is unknown/unsupported. */
@@ -48,12 +48,12 @@ export function usedPins(units) {
  * @returns {string | null}
  */
 export function addUnitBlocker(device) {
-  const type = device.device_type;
+  const type = device?.device_type;
   if (!type) return "Menunggu status dari perangkat (jenis mikrokontroler belum diketahui). Form aktif setelah perangkat melapor.";
   const allowed = allowedPins(type);
   if (!allowed) return `Jenis perangkat “${type}” belum dikenal, jadi pin tidak bisa divalidasi di sini.`;
-  if (device.units.length >= MAX_UNITS) return `Slot penuh: maksimum ${MAX_UNITS} unit. Hapus unit dinamis untuk menambah yang baru.`;
-  const free = allowed.filter((pin) => !usedPins(device.units).has(pin));
+  if ((device?.units?.length ?? 0) >= MAX_UNITS) return `Slot penuh: maksimum ${MAX_UNITS} unit. Hapus unit dinamis untuk menambah yang baru.`;
+  const free = allowed.filter((pin) => !usedPins(device?.units).has(pin));
   if (free.length < PINS_PER_UNIT) {
     return `Pin yang tersisa hanya ${free.length}, sedangkan satu unit butuh ${PINS_PER_UNIT} pin. Kapasitas ${type} sudah habis.`;
   }
@@ -66,8 +66,9 @@ export function addUnitBlocker(device) {
  */
 export function validateUnitPins(device, values) {
   const errors = {};
-  const allowed = allowedPins(device.device_type) ?? [];
-  const used = usedPins(device.units);
+  const deviceType = device?.device_type || "ESP32";
+  const allowed = allowedPins(deviceType) ?? [];
+  const used = usedPins(device?.units);
   const seen = new Map();
 
   for (const { key, label } of PIN_FIELDS) {
@@ -78,7 +79,7 @@ export function validateUnitPins(device, values) {
     }
     const pin = Number(raw);
     if (!Number.isInteger(pin)) errors[key] = `${label} harus berupa bilangan bulat.`;
-    else if (!allowed.includes(pin)) errors[key] = `GPIO ${pin} tidak diizinkan untuk ${device.device_type}.`;
+    else if (!allowed.includes(pin)) errors[key] = `GPIO ${pin} tidak diizinkan untuk ${deviceType}.`;
     else if (used.has(pin)) errors[key] = `GPIO ${pin} sudah dipakai unit ${used.get(pin)}.`;
     else if (seen.has(pin)) errors[key] = `GPIO ${pin} sudah dipilih untuk ${seen.get(pin)}.`;
     else seen.set(pin, label);

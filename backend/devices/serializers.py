@@ -20,15 +20,19 @@ class DeviceSerializer(serializers.ModelSerializer):
     units = DeviceUnitSerializer(many=True, read_only=True)
     is_online = serializers.BooleanField(read_only=True)
     open_alert_count = serializers.IntegerField(read_only=True, default=0)
+    device_type = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
         fields = (
             "device_id", "name", "latitude", "longitude", "tolerant_distance_cm", "timeout_seconds",
             "is_online", "last_seen", "last_operation", "setup_result", "setup_detail", "setup_reported_at",
-            "units", "open_alert_count", "created_at",
+            "units", "open_alert_count", "created_at", "device_type",
         )
         read_only_fields = ("last_seen", "last_operation", "setup_result", "setup_detail", "setup_reported_at")
+
+    def get_device_type(self, obj):
+        return getattr(obj, "device_type", None) or "ESP32"
 
     def update(self, instance, validated_data):
         validated_data.pop("device_id", None)  # the id is baked into MQTT topics; it never changes

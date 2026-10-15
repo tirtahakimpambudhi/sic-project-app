@@ -1,5 +1,16 @@
 # Dependencies
 node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+**/dist/
+.vite/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 
 # Environment files
 .env
@@ -12,3 +23,4 @@ node_modules/
 *.db
 
 *.sh
+!backend/entrypoint.sh

@@ -12,7 +12,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useNotification } from "../context/NotificationContext.jsx";
 import useAlerts from "../hooks/useAlerts.js";
 import useDevices from "../hooks/useDevices.js";
-import { apiErrorMessage } from "../services/api.js";
+import api, { apiErrorMessage } from "../services/api.js";
 import {
   deviceHealth,
   formatClock,
@@ -281,7 +281,18 @@ function ComparisonSection({ devices, loading, error, isOperator }) {
 /* ------------------------------------------------------------------ page */
 export default function Dashboard() {
   const { isOperator } = useAuth();
-  const { devices, loading, error, updatedAt } = useDevices();
+  const { devices, loading, error, updatedAt, refresh } = useDevices();
+  const { notify } = useNotification();
+
+  async function handleReleaseFromMap(deviceId) {
+    try {
+      await api.post(`/devices/${deviceId}/release/`, {});
+      notify("Perintah lepas alarm berhasil dikirim ke perangkat.");
+      if (refresh) refresh();
+    } catch (err) {
+      notify(apiErrorMessage(err), "danger");
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -302,7 +313,7 @@ export default function Dashboard() {
           ) : devices.length === 0 ? (
             <EmptyState title="Belum ada titik untuk ditampilkan">Peta muncul setelah perangkat pertama didaftarkan.</EmptyState>
           ) : (
-            <MapPanel devices={devices} />
+            <MapPanel devices={devices} onRelease={handleReleaseFromMap} />
           )}
         </Card>
         <AlertSection />

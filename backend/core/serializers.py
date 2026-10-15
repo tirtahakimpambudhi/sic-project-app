@@ -29,6 +29,7 @@ class DeviceUnitSerializer(serializers.ModelSerializer):
 class DeviceSerializer(serializers.ModelSerializer):
     units = DeviceUnitSerializer(many=True, read_only=True)
     is_online = serializers.BooleanField(read_only=True)
+    device_type = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
@@ -37,13 +38,16 @@ class DeviceSerializer(serializers.ModelSerializer):
             "tolerant_distance_cm", "timeout_seconds",
             "is_online", "last_seen_at",
             "last_operation", "last_config_result", "last_config_detail", "last_config_at",
-            "units", "created_at",
+            "units", "created_at", "device_type",
         ]
         # Runtime values belong to the device (reported over MQTT); the API only owns identity + location.
         read_only_fields = [
             "id", "tolerant_distance_cm", "timeout_seconds", "last_seen_at", "last_operation",
-            "last_config_result", "last_config_detail", "last_config_at", "created_at",
+            "last_config_result", "last_config_detail", "last_config_at", "created_at", "device_type",
         ]
+
+    def get_device_type(self, obj):
+        return getattr(obj, "device_type", None) or "ESP32"
 
     def validate_device_id(self, value: str) -> str:
         # device_id is the MQTT topic segment; changing it would orphan the device.
