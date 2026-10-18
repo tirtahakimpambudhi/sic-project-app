@@ -20,7 +20,6 @@ for attempt in range(60):
         time.sleep(2)
 print("MySQL is not reachable", file=sys.stderr)
 sys.exit(1)
-PY
 
 if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
     python manage.py migrate --noinput
