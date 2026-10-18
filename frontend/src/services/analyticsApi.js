@@ -26,6 +26,25 @@ export const analyticsApi = {
   getAlertsDaily: (filters) =>
     api.get("/analytics/alerts/daily/", { params: buildParams(filters) }).then((r) => r.data),
 
+  getAlertsHourly: (filters) =>
+    api.get("/analytics/alerts/hourly/", { params: buildParams(filters) }).then((r) => r.data),
+
+  getRecentAlerts: (deviceFilter = []) => {
+    const params = new URLSearchParams();
+    if (Array.isArray(deviceFilter) && deviceFilter.length === 1) {
+      params.set("device", deviceFilter[0]);
+    } else if (typeof deviceFilter === "string" && deviceFilter) {
+      params.set("device", deviceFilter);
+    }
+    return api.get("/alerts/", { params }).then((r) => {
+      let data = Array.isArray(r.data) ? r.data : r.data.results || [];
+      if (Array.isArray(deviceFilter) && deviceFilter.length > 1) {
+        data = data.filter((item) => deviceFilter.includes(item.device_id));
+      }
+      return data.slice(0, 50);
+    });
+  },
+
   getAlertsByLocation: (filters) =>
     api.get("/analytics/alerts/by-location/", { params: buildParams(filters) }).then((r) => r.data),
 

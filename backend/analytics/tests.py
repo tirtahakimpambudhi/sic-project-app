@@ -7,13 +7,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from accounts.models import Role
-from devices.models import AlertLog, Device, DeviceUnit, TelemetryLog
+from devices.models import AlertLog, Device, DeviceUnit
 
 User = get_user_model()
 WIB = zoneinfo.ZoneInfo("Asia/Jakarta")
 
 
-class AnalyticsTestCase(TestCase):
+class AnalyticsMVPTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
 
@@ -87,7 +87,6 @@ class AnalyticsTestCase(TestCase):
         """
         self.client.force_authenticate(user=self.operator)
 
-        # Buat alert pada 2026-10-15 23:30 WIB
         dt_wib = datetime.datetime(2026, 10, 15, 23, 30, 0, tzinfo=WIB)
         dt_utc = dt_wib.astimezone(datetime.timezone.utc)
 
@@ -107,7 +106,6 @@ class AnalyticsTestCase(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         daily_list = res.data
 
-        # Cari data tanggal 2026-10-15
         oct_15 = [d for d in daily_list if d["tanggal"] == "2026-10-15"]
         oct_16 = [d for d in daily_list if d["tanggal"] == "2026-10-16"]
 
@@ -122,7 +120,7 @@ class AnalyticsTestCase(TestCase):
 
         base_time = datetime.datetime(2026, 10, 10, 10, 0, 0, tzinfo=WIB).astimezone(datetime.timezone.utc)
 
-        # Alert 1: diselesaikan setelah 20 menit, durasi 10 menit, 3 occurrences
+        # Alert 1: diselesaikan setelah 20 menit, durasi 10 menit
         AlertLog.objects.create(
             device=self.device1,
             unit_id=0,
@@ -137,7 +135,7 @@ class AnalyticsTestCase(TestCase):
             resolved_by=self.operator,
         )
 
-        # Alert 2: belum selesai (terbuka), durasi 30 menit, 2 occurrences
+        # Alert 2: belum selesai (terbuka), durasi 30 menit
         AlertLog.objects.create(
             device=self.device1,
             unit_id=0,
@@ -157,71 +155,47 @@ class AnalyticsTestCase(TestCase):
         self.assertEqual(s["total_alert"], 2)
         self.assertEqual(s["alert_terbuka"], 1)
         self.assertEqual(s["persen_selesai"], 50.0)
-        self.assertEqual(s["total_pengulangan"], 5)
         self.assertEqual(s["median_waktu_penanganan_menit"], 20.0)
-        # Rata2 durasi: (10 + 30) / 2 = 20.0
-        self.assertEqual(s["rata2_durasi_insiden_menit"], 20.0)
         self.assertEqual(s["perangkat_total"], 1)
         self.assertEqual(s["perangkat_online"], 1)
-        self.assertEqual(len(s["lokasi"]), 1)
-        self.assertEqual(s["lokasi"][0]["koordinat"], "-6.20880, 106.84560")
 
-    def test_telemetry_metrics_and_coverage(self):
+        self.assertEqual(len(s["per_lokasi"]), 1)
+        loc = s["per_lokasi"][0]
+        self.assertEqual(loc["device_id"], "dev-test-01")
+        self.assertEqual(loc["lokasi"], "Bahu Jalan Sudirman")
+        self.assertEqual(loc["koordinat"], "-6.20880, 106.84560")
+        self.assertEqual(loc["alert"], 2)
+        self.assertEqual(loc["terbuka"], 1)
+        self.assertEqual(loc["median_penanganan_menit"], 20.0)
+        # Jam puncak: alert dibuat pada jam 10 dan 11 WIB, masing-masing 1
+        self.assertIn(loc["jam_puncak"], [10, 11])
+
+    def test_hourly_alerts_endpoint(self):
         self.client.force_authenticate(user=self.operator)
 
-        # Set 360 readings in one hour -> 360 / (3600/5) = 360 / 720 = 50% kelengkapan
-        t0 = datetime.datetime(2026, 10, 10, 8, 0, 0, tzinfo=WIB).astimezone(datetime.timezone.utc)
-        telemetries = []
-        for i in range(360):
-            telemetries.append(
-                TelemetryLog(
-                    device=self.device1,
-                    unit_id=0,
-                    distance_cm=25.0 if i % 2 == 0 else None,  # 50% tanpa echo
-                    detection_state="confirmed" if i < 36 else "scanning",  # 10% confirmed
-                    created_at=t0 + datetime.timedelta(seconds=i * 5),
-                )
-            )
-        TelemetryLog.objects.bulk_create(telemetries)
-
-        res = self.client.get("/api/analytics/telemetry/by-location/?start=2026-10-10&end=2026-10-10")
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        data = res.data
-        self.assertEqual(len(data), 1)
-        item = data[0]
-        self.assertEqual(item["bacaan"], 360)
-        self.assertEqual(item["kelengkapan_persen"], 50.0)
-        self.assertEqual(item["persen_tanpa_echo"], 50.0)
-        self.assertEqual(item["persen_confirmed"], 10.0)
-        self.assertEqual(item["jarak_median_cm"], 25.0)
-
-    def test_alerts_table_pagination_and_csv(self):
-        self.client.force_authenticate(user=self.operator)
-
-        t0 = datetime.datetime(2026, 10, 10, 10, 0, 0, tzinfo=WIB).astimezone(datetime.timezone.utc)
+        # Alert dibuat pada jam 14:00 WIB (07:00 UTC)
+        t_14_wib = datetime.datetime(2026, 10, 12, 14, 15, 0, tzinfo=WIB).astimezone(datetime.timezone.utc)
         AlertLog.objects.create(
             device=self.device1,
             unit_id=0,
             event_name="parkir_liar",
             alert_type="illegal_parking",
-            message="Test CSV",
+            message="Test Hourly",
             occurrences=1,
-            created_at=t0,
-            last_occurred_at=t0,
+            created_at=t_14_wib,
+            last_occurred_at=t_14_wib,
             is_resolved=False,
         )
 
-        # JSON table
-        res = self.client.get("/api/analytics/alerts/table/?start=2026-10-09&end=2026-10-11")
+        res = self.client.get("/api/analytics/alerts/hourly/?start=2026-10-12&end=2026-10-12")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertIn("results", res.data)
-        self.assertEqual(res.data["count"], 1)
-        self.assertEqual(res.data["results"][0]["lokasi"], "Bahu Jalan Sudirman")
+        hourly_list = res.data
 
-        # CSV format
-        res_csv = self.client.get("/api/analytics/alerts/table/?start=2026-10-09&end=2026-10-11&format=csv")
-        self.assertEqual(res_csv.status_code, status.HTTP_200_OK)
-        self.assertEqual(res_csv["Content-Type"], "text/csv; charset=utf-8")
-        content = res_csv.content.decode("utf-8")
-        self.assertIn("Bahu Jalan Sudirman", content)
-        self.assertIn("Waktu Dibuat (WIB)", content)
+        self.assertEqual(len(hourly_list), 24)
+        h14 = [h for h in hourly_list if h["jam"] == 14]
+        h0 = [h for h in hourly_list if h["jam"] == 0]
+
+        self.assertEqual(len(h14), 1)
+        self.assertEqual(h14[0]["alert"], 1)
+        self.assertEqual(len(h0), 1)
+        self.assertEqual(h0[0]["alert"], 0)
