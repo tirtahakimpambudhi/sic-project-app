@@ -104,8 +104,8 @@ static const char *MQTT_PASSWORD = "s1cu53rp455w0rd";
 
 // --- Identitas perangkat ---
 static const char *DEVICE_ID = "e5bf08a0-137f-4451-a33c-f3f551c5312b";
-static const double DEFAULT_LONGITUDE = 106.845599;
-static const double DEFAULT_LATITUDE = -10.208763;
+static const double DEFAULT_LONGITUDE = 110.330488;
+static const double DEFAULT_LATITUDE = -7.885930;
 
 // --- Pin unit DEFAULT (harus termasuk allowlist tipe board-nya) ---
 #if defined(ESP8266)
