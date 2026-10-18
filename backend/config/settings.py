@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "accounts",
     "devices",
+    "analytics",
 ]
 
 MIDDLEWARE = [
@@ -84,8 +85,9 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
+    "ROTATE_REFRESH_TOKENS": True,
 }
 
 CORS_ALLOWED_ORIGINS = [o for o in env("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o]
@@ -99,6 +101,8 @@ MQTT_KEEPALIVE_SECONDS = 30
 # Telemetry arrives every 5 s per unit; a device silent for longer than this is shown as offline.
 DEVICE_ONLINE_WINDOW_SECONDS = int(env("DEVICE_ONLINE_WINDOW_SECONDS", "20"))
 # A repeated alert for the same unit within this window is merged into the open alert.
+# Telemetry interval (default 5 seconds)
+TELEMETRY_INTERVAL_SECONDS = int(env("TELEMETRY_INTERVAL_SECONDS", "5"))
 ALERT_MERGE_WINDOW_SECONDS = int(env("ALERT_MERGE_WINDOW_SECONDS", "300"))
 
 LOGGING = {

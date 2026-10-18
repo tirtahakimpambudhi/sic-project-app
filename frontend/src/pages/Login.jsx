@@ -10,13 +10,14 @@ import ThemeToggle from "../components/ThemeToggle.jsx";
 import { apiErrorMessage } from "../services/api.js";
 
 export default function Login() {
-  const { user, login } = useAuth();
+  const { user, booting, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  if (booting) return null;
   if (user) return <Navigate to={location.state?.from ?? "/"} replace />;
 
   const update = (field) => (event) => setForm((previous) => ({ ...previous, [field]: event.target.value }));

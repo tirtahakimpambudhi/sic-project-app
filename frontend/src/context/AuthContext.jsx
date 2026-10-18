@@ -13,7 +13,12 @@ export function AuthProvider({ children }) {
     api
       .get("/auth/me/")
       .then(({ data }) => setUser(data))
-      .catch(() => tokenStore.clear())
+      .catch((err) => {
+        // If server definitively rejects with 401 and refresh cannot be done, clear tokens
+        if (err.response?.status === 401 && !tokenStore.refresh) {
+          tokenStore.clear();
+        }
+      })
       .finally(() => setBooting(false));
   }, []);
 

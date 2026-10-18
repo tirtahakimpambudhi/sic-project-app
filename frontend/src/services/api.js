@@ -51,10 +51,15 @@ api.interceptors.response.use(
       try {
         const access = await refreshAccessToken();
         original.headers.Authorization = `Bearer ${access}`;
-        return api(original);
-      } catch {
-        tokenStore.clear();
-        window.dispatchEvent(new Event("slop:session-expired"));
+        return await api(original);
+      } catch (refreshError) {
+        // Only clear credentials if the refresh token was explicitly rejected by the server
+        const status = refreshError.response?.status;
+        if (status === 401 || status === 400) {
+          tokenStore.clear();
+          window.dispatchEvent(new Event("slop:session-expired"));
+        }
+        return Promise.reject(refreshError);
       }
     }
     return Promise.reject(error);
