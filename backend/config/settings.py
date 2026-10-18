@@ -25,7 +25,6 @@ INSTALLED_APPS = [
     "rest_framework",
     "accounts",
     "devices",
-    "analytics",
 ]
 
 MIDDLEWARE = [
@@ -101,8 +100,6 @@ MQTT_KEEPALIVE_SECONDS = 30
 # Telemetry arrives every 5 s per unit; a device silent for longer than this is shown as offline.
 DEVICE_ONLINE_WINDOW_SECONDS = int(env("DEVICE_ONLINE_WINDOW_SECONDS", "20"))
 # A repeated alert for the same unit within this window is merged into the open alert.
-# Telemetry interval (default 5 seconds)
-TELEMETRY_INTERVAL_SECONDS = int(env("TELEMETRY_INTERVAL_SECONDS", "5"))
 ALERT_MERGE_WINDOW_SECONDS = int(env("ALERT_MERGE_WINDOW_SECONDS", "300"))
 
 LOGGING = {
