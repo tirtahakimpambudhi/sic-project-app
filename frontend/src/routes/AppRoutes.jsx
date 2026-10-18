@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "../components/AppShell.jsx";
+import Analytics from "../pages/Analytics.jsx";
 import Dashboard from "../pages/Dashboard.jsx";
 import DeviceDetail from "../pages/DeviceDetail.jsx";
 import DeviceManagement from "../pages/DeviceManagement.jsx";
@@ -12,10 +13,11 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      {/* Both roles: live monitoring + alert logs */}
+      {/* Both roles: live monitoring + alert logs + analytics */}
       <Route element={<ProtectedRoute roles={["operator", "satpol_pp"]} />}>
         <Route element={<AppShell />}>
           <Route index element={<Dashboard />} />
+          <Route path="analisis" element={<Analytics />} />
           <Route path="devices/:deviceId" element={<DeviceDetail />} />
         </Route>
       </Route>
