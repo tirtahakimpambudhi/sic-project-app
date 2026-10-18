@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#4CAF50" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Monitoring &amp; Peringatan Dini Pelanggaran Bahu Jalan (Parkir Liar)</title>
+    <meta
+      name="description"
+      content="Sistem Monitoring dan Peringatan Dini Pelanggaran Bahu Jalan (Parkir Liar) Berbasis IoT dan Dashboard Web Interaktif"
+    />
+    <script>
+      // Apply the saved (or system) theme before first paint so the page never flashes the wrong mode.
+      (function () {
+        try {
+          var saved = localStorage.getItem("slop.theme");
+          var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
