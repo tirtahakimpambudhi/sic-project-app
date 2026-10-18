@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, LogOut, Menu, SlidersHorizontal, Users, X } from "lucide-react";
+import { BarChart3, LayoutDashboard, LogOut, Menu, SlidersHorizontal, Users, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { APP_NAME_FULL, APP_NAME_SHORT } from "../config/app.js";
 import ThemeToggle from "./ThemeToggle.jsx";
@@ -9,6 +9,7 @@ const ROLE_LABEL = { operator: "Operator", satpol_pp: "Satpol PP" };
 
 const NAV_ITEMS = [
   { to: "/", label: "Pemantauan", icon: LayoutDashboard, end: true, roles: ["operator", "satpol_pp"] },
+  { to: "/analisis", label: "Analisis", icon: BarChart3, roles: ["operator", "satpol_pp"] },
   { to: "/manage", label: "Kelola perangkat", icon: SlidersHorizontal, roles: ["operator"] },
   { to: "/users", label: "Manajemen pengguna", icon: Users, roles: ["operator"] },
 ];
